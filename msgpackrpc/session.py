@@ -1,6 +1,9 @@
+from tornado.concurrent import Future
+from tornado import gen
+
 from msgpackrpc import Loop
 from msgpackrpc import message
-from msgpackrpc.future import Future
+from msgpackrpc.future import Future as RpcFuture
 from msgpackrpc.transport import tcp
 from msgpackrpc.compat import iteritems
 from msgpackrpc.error import TimeoutError
@@ -38,7 +41,7 @@ class Session(object):
         return self._address
 
     def call(self, method, *args):
-        return self.send_request(method, args).get()
+        return self._loop._ioloop.run_sync(self.send_request(method, args), timeout=self._timeout)
 
     def call_async(self, method, *args):
         return self.send_request(method, args)
@@ -46,7 +49,7 @@ class Session(object):
     def send_request(self, method, args):
         # need lock?
         msgid = next(self._generator)
-        future = Future(self._loop, self._timeout)
+        future = Future()
         self._request_table[msgid] = future
         self._transport.send_message([message.REQUEST, msgid, method, args])
         return future
@@ -70,7 +73,7 @@ class Session(object):
         """
         # set error for all requests
         for msgid, future in iteritems(self._request_table):
-            future.set_error(reason)
+            future.set_exception(reason)
 
         self._request_table = {}
         self.close()
@@ -89,14 +92,14 @@ class Session(object):
         future = self._request_table.pop(msgid)
 
         if error is not None:
-            future.set_error(error)
+            future.set_exception(error)
         else:
             future.set_result(result)
         self._loop.stop()
 
     def on_timeout(self, msgid):
         future = self._request_table.pop(msgid)
-        future.set_error("Request timed out")
+        future.set_exception("Request timed out")
 
     def step_timeout(self):
         timeouts = []

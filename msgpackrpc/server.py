@@ -52,6 +52,7 @@ class Server(session.Session):
             else:
                 responder.set_result(result)
         except Exception as e:
+            print("exception in dispatch:", e)
             responder.set_error(str(e))
 
         # TODO: Support advanced return
